@@ -1,5 +1,8 @@
 # Frank2673.github.io
 
+[![CI](https://github.com/Frank2673/Frank2673.github.io/actions/workflows/ci.yml/badge.svg)](https://github.com/Frank2673/Frank2673.github.io/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 个人主页源码 —— **零依赖静态站**：没有框架、没有构建步骤、没有外部 CDN，纯手写 HTML / CSS / JS，由 GitHub Pages 托管、GitHub Actions 守护质量。
 
 🔗 **线上地址**：<https://frank2673.github.io/>

@@ -189,6 +189,57 @@ for (const file of HTML_FILES) {
 /* --------------------------------------------------------------------------
    3. 全站 grep：不该出现的模式
    -------------------------------------------------------------------------- */
+
+/**
+ * HTML 标签闭合检查（栈式匹配）
+ * 手写 HTML 最容易犯的错就是漏闭合标签，而浏览器会"容忍"到看不出问题。
+ * 这里只做结构性检查，遇到 void 元素与自闭合标签跳过。
+ */
+const VOID_ELEMENTS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
+function checkTagBalance(file, html) {
+  /* 去掉注释与 script/style 内部内容，避免误判其中的尖括号 */
+  const cleaned = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script></script>')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style></style>');
+
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g;
+  const stack = [];
+  let m;
+  const problems = [];
+
+  while ((m = tagRe.exec(cleaned)) !== null) {
+    const isClosing = m[1] === '/';
+    const name = m[2].toLowerCase();
+    const attrs = m[3] || '';
+
+    if (VOID_ELEMENTS.has(name) || /\/\s*$/.test(attrs)) continue;
+
+    if (isClosing) {
+      const last = stack.pop();
+      if (last !== name) {
+        problems.push(`</${name}> 与最近的 <${last || '无'}> 不匹配`);
+      }
+    } else {
+      stack.push(name);
+    }
+  }
+
+  if (stack.length) problems.push(`未闭合标签：${stack.map((t) => `<${t}>`).join(', ')}`);
+
+  if (problems.length) bad(`${file}：标签结构异常 → ${problems.slice(0, 3).join('；')}`);
+  else ok(`${file}：标签闭合正确`);
+}
+
+for (const file of HTML_FILES) {
+  const abs = join(ROOT, file);
+  if (existsSync(abs)) checkTagBalance(file, readFileSync(abs, 'utf8'));
+}
+
 const css = existsSync(join(ROOT, 'assets/css/style.css'))
   ? readFileSync(join(ROOT, 'assets/css/style.css'), 'utf8')
   : '';
