@@ -1,0 +1,71 @@
+name: CI
+
+# 质量门禁：push 到 main 与任何 PR 都会跑
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支的旧运行自动取消，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: 站点质量检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 站点自检（结构 / 链接 / SEO / 无障碍 / 零依赖）
+        run: node scripts/validate-site.mjs
+
+      - name: 关键资产体积核查
+        run: |
+          for f in index.html assets/css/style.css assets/js/main.js; do
+            size=$(wc -c < "$f")
+            echo "$f → $size 字节"
+            if [ "$size" -gt 204800 ]; then
+              echo "❌ $f 超过 200KB，请检查是否塞入了不该有的东西"
+              exit 1
+            fi
+          done
+          echo "✅ 体积正常"
+
+      - name: 生成脚本可复现（重新生成分享图并比对）
+        run: |
+          node scripts/generate-og-cover.mjs
+          if ! git diff --quiet -- assets/img; then
+            echo "❌ assets/img 与脚本产出一致性检查失败：请运行 node scripts/generate-og-cover.mjs 后提交"
+            git diff --stat -- assets/img
+            exit 1
+          fi
+          echo "✅ 分享图与生成脚本一致（可复现）"
+
+  hygiene:
+    name: 仓库卫生
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 禁止合并冲突标记
+        run: |
+          if grep -rnE '^(<{7}|={7}|>{7})( |$)' --include='*.html' --include='*.css' --include='*.js' --include='*.md' . ; then
+            echo "❌ 发现 Git 合并冲突标记"
+            exit 1
+          fi
+          echo "✅ 无冲突标记"
+
+      - name: 校验 workflow YAML 语法
+        run: |
+          python3 - <<'EOF'
+          import glob, yaml
+          for f in glob.glob(".github/workflows/*.yml"):
+              yaml.safe_load(open(f, encoding="utf-8"))
+              print(f"✅ {f} 语法正确")
+          EOF
