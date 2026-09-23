@@ -23,6 +23,9 @@ dist/
 public/
 public-manifest.json
 
+# ===== wrangler 本地缓存（含账号 ID 等本机信息，绝不入库） =====
+.wrangler/
+
 # ===== 本机工具链（不进入公开仓库） =====
 .dsh/
 AGENTS.md
