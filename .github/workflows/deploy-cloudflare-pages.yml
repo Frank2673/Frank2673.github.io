@@ -34,19 +34,40 @@ jobs:
       - name: 组装发布目录（白名单，仅公开必要文件）
         run: node scripts/build-public.mjs
 
-      - name: 检查 Cloudflare 凭据是否已配置
+      - name: 检查 Cloudflare 凭据是否可用
         id: creds
+        env:
+          # 关键：密钥必须通过 env 注入，绝不能插值进 run: 脚本本体。
+          # 直接插值（${{ secrets.X }}）会在值含换行/引号时截断引号、导致脚本语法错误
+          # —— 实测踩过：报 "unexpected EOF while looking for matching quote"。
+          RAW_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
+          # 粘贴到密钥框时容易带上首尾空白/换行，这里统一清理
+          token="$(printf '%s' "$RAW_API_TOKEN" | tr -d '[:space:]')"
+          account="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -d '[:space:]')"
+
+          if [ -z "$token" ] || [ -z "$account" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未配置 Cloudflare 凭据，跳过部署。配置方法见 DEPLOY-CLOUDFLARE.md"
+            exit 0
           fi
 
-      - name: 缺少凭据时的提示
-        if: steps.creds.outputs.ready != 'true'
-        run: |
-          echo "::notice::未配置 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID，跳过部署。配置方法见 DEPLOY-CLOUDFLARE.md"
+          # 格式自检：Cloudflare API Token 为 40 位 [A-Za-z0-9_-]，账户 ID 为 32 位十六进制。
+          # 只输出长度、不输出值 —— 便于定位"粘贴带了多余字符"这类问题。
+          if ! printf '%s' "$token" | grep -Eq '^[A-Za-z0-9_-]{40}$'; then
+            echo "::error::CLOUDFLARE_API_TOKEN 格式不正确（实际长度 ${#token}，应为 40 位字母数字/下划线/连字符）"
+            echo "   常见原因：粘贴时带入了换行或多余空格。请重新设置该密钥："
+            echo "   gh secret set CLOUDFLARE_API_TOKEN --repo $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          if ! printf '%s' "$account" | grep -Eq '^[A-Za-z0-9]{32}$'; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID 格式不正确（实际长度 ${#account}，应为 32 位十六进制）"
+            exit 1
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::凭据格式校验通过，开始部署"
 
       - name: 部署到 Cloudflare Pages
         if: steps.creds.outputs.ready == 'true'
