@@ -20,28 +20,8 @@
     }
   })();
 </script>
-<style>
-  .error-wrap {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    padding: 40px 20px;
-  }
-  .error-code {
-    font-family: var(--font-mono);
-    font-size: clamp(4.5rem, 18vw, 9rem);
-    line-height: 1;
-    margin: 0 0 8px;
-    background: var(--accent-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .error-title { font-size: clamp(1.2rem, 4vw, 1.7rem); margin-bottom: 12px; }
-  .error-desc { color: var(--text-muted); max-width: 46ch; margin: 0 auto 28px; }
-  .error-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-</style>
+<!-- 注：错误页样式已移至 assets/css/style.css（第 17 节）。
+     原因：CSP 的 style-src 'self' 会拦截内联 <style>，放在样式表里才不会被拦。 -->
 </head>
 <body>
 <main class="error-wrap">

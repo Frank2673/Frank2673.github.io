@@ -17,6 +17,7 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SITE_ORIGIN = 'https://frank2673.github.io';
@@ -91,6 +92,70 @@ if (existsSync(join(ROOT, '_headers'))) {
       bad('_headers 的 CSP 缺少 default-src 或 frame-ancestors');
     } else {
       ok('_headers 的 CSP 结构完整且未放行 unsafe-inline 脚本');
+    }
+
+    /* --- 内联资源与 CSP 白名单一致性 ---
+       内联脚本/样式若不在白名单里，浏览器会静默拦掉（页面少了主题脚本或样式），
+       而且这类问题上线后才容易发现 —— 所以在自检阶段就拦住。 */
+    const NON_EXECUTABLE = [
+      'application/ld+json',
+      'application/json',
+      'text/template',
+      'text/x-template',
+      'importmap',
+    ];
+    const declaredHashes = new Set(
+      (cspLine.match(/'sha256-[A-Za-z0-9+/=]+'/g) || []).map((s) => s.slice(1, -1))
+    );
+
+    for (const page of ['index.html', '404.html']) {
+      const abs = join(ROOT, page);
+      if (!existsSync(abs)) continue;
+      const html = readFileSync(abs, 'utf8');
+
+      /* 内联脚本（排除 JSON-LD 等数据块） */
+      const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+      let m;
+      let scriptCount = 0;
+      while ((m = scriptRe.exec(html)) !== null) {
+        const attrs = m[1] || '';
+        if (/\bsrc\s*=/i.test(attrs)) continue;
+        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+        const type = typeMatch ? typeMatch[1].trim().toLowerCase() : 'text/javascript';
+        if (NON_EXECUTABLE.includes(type)) continue;
+        const body = m[2];
+        if (!body.trim()) continue;
+        scriptCount++;
+
+        const hash = 'sha256-' + createHash('sha256').update(body, 'utf8').digest('base64');
+        if (!declaredHashes.has(hash)) {
+          bad(
+            `${page}：内联脚本的 hash 不在 CSP 白名单中 → 会被浏览器拦掉\n` +
+              `      缺的 hash：'${hash}'\n` +
+              `      修复：在 header-forge 仓库重新生成策略并更新 _headers`
+          );
+        }
+      }
+      if (scriptCount && !results.fail.some((f) => f.startsWith(page + '：内联脚本'))) {
+        ok(`${page}：${scriptCount} 段内联脚本的 hash 均在 CSP 白名单内`);
+      }
+
+      /* 内联样式：CSP 的 style-src 只有 'self' 时，任何内联 <style> 都会被拦 */
+      const styleRe = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+      let styleCount = 0;
+      while ((m = styleRe.exec(html)) !== null) {
+        if (!m[1].trim()) continue;
+        styleCount++;
+        const hash = 'sha256-' + createHash('sha256').update(m[1], 'utf8').digest('base64');
+        const styleSrc = (cspLine.match(/style-src ([^;]+)/) || [])[1] || '';
+        if (!styleSrc.includes("'unsafe-inline'") && !declaredHashes.has(hash)) {
+          bad(
+            `${page}：含内联 <style> 但 CSP 的 style-src 未放行 → 样式会被拦掉\n` +
+              `      建议移入 assets/css/style.css（比加 hash 更好维护）`
+          );
+        }
+      }
+      if (styleCount === 0) ok(`${page}：无内联样式（CSP 无需为样式开口子）`);
     }
   }
 }
