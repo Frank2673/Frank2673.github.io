@@ -1,0 +1,26 @@
+{
+  "name": "frank2673-github-io",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "个人主页：零依赖静态站，双平台部署（GitHub Pages + Cloudflare Pages 执行安全响应头）",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "validate": "node scripts/validate-site.mjs",
+    "build": "node scripts/build-public.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "check": "node scripts/check-deployed-headers.mjs",
+    "og": "node scripts/generate-og-cover.mjs",
+    "test": "node scripts/validate-site.mjs"
+  },
+  "keywords": [
+    "personal-website",
+    "zero-dependency",
+    "security-headers",
+    "github-pages",
+    "cloudflare-pages"
+  ],
+  "license": "MIT"
+}

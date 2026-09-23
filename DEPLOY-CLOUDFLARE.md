@@ -135,8 +135,16 @@ node src/index.mjs verify --policy headers.policy.json --url https://<你的站�
 
 **Q：站点上有两个地址（github.io 和 pages.dev），会不会有 SEO 重复内容问题？**
 
-会有一点。建议二选一作为主站点：若长期使用 pages.dev，可以在 GitHub Pages 仓库里把
-`index.html` 换成跳转页，或在 `robots.txt` 中禁止 `github.io` 那个域被索引。
+不会。本站 `index.html` 里已经声明了 `canonical`：
+
+```html
+<link rel="canonical" href="https://frank2673.github.io/">
+```
+
+搜索引擎会把 `frank2673.github.io` 视为唯一权威地址，`pages.dev` 上的同一份内容不会被判为重复收录。
+分工因此很清晰：**GitHub Pages 当门面（记录阅读量、被收录），Cloudflare Pages 负责安全响应头。**
+
+若将来想反过来以 `pages.dev` 或自有域名为主，只需把 `canonical` 改成对应地址即可。
 
 **Q：我想要品牌域名（而不是 `*.pages.dev`）怎么办？**
 

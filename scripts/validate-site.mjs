@@ -42,6 +42,7 @@ const REQUIRED = [
   'sitemap.xml',
   '.nojekyll',
   '_headers',
+  '.well-known/security.txt',
   'README.md',
   'LICENSE',
 ];
@@ -64,6 +65,47 @@ for (const file of REQUIRED) {
     bad(`文件为空：${file}`);
   } else {
     ok(`必需文件存在：${file}`);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   1a. security.txt（RFC 9116）
+   过期是最常见的疏漏：文件还在但 Expires 已过期，等于告诉研究者"这里没人管"。
+   -------------------------------------------------------------------------- */
+const SECURITY_TXT = join(ROOT, '.well-known/security.txt');
+if (existsSync(SECURITY_TXT)) {
+  const text = readFileSync(SECURITY_TXT, 'utf8');
+  const field = (name) => {
+    const m = text.match(new RegExp(`^${name}:\\s*(.+)$`, 'im'));
+    return m ? m[1].trim() : null;
+  };
+
+  const contact = field('Contact');
+  if (!contact || !/^https?:\/\//.test(contact)) {
+    bad('security.txt：缺少有效的 Contact 字段（应为可访问的 URL）');
+  } else {
+    ok(`security.txt：Contact 已声明（${contact}）`);
+  }
+
+  const expires = field('Expires');
+  if (!expires) {
+    bad('security.txt：缺少 Expires 字段（RFC 9116 要求必填）');
+  } else {
+    const when = new Date(expires);
+    if (Number.isNaN(when.getTime())) {
+      bad(`security.txt：Expires 不是合法的 RFC3339 时间：${expires}`);
+    } else if (when.getTime() < Date.now()) {
+      const days = Math.floor((Date.now() - when.getTime()) / 86400000);
+      bad(`security.txt：Expires 已过期 ${days} 天 —— 过期等于文件失效，请更新`);
+    } else {
+      const days = Math.floor((when.getTime() - Date.now()) / 86400000);
+      ok(`security.txt：Expires 有效（还有 ${days} 天）`);
+    }
+  }
+
+  const canonical = field('Canonical');
+  if (canonical && !/^https:\/\//.test(canonical)) {
+    bad('security.txt：Canonical 应为 https 绝对地址');
   }
 }
 

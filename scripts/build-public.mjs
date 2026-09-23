@@ -29,7 +29,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** 白名单：只有这些会进入生产站点 */
 const PUBLIC_FILES = ['index.html', '404.html', 'robots.txt', 'sitemap.xml', '_headers'];
-const PUBLIC_DIRS = ['assets'];
+const PUBLIC_DIRS = ['assets', '.well-known'];
 
 /** `_headers` 中必须存在的安全响应头（基线；权威策略在 header-forge 仓库） */
 const REQUIRED_HEADERS = [

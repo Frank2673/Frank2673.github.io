@@ -1,0 +1,14 @@
+# 本站安全联系方式（RFC 9116 标准）
+#
+# 为什么要有这个文件？
+#   安全研究者发现本站问题时，需要知道「该联系谁、怎么联系」。
+#   没有它，报告往往会发到无人查看的邮箱，或被公开披露。
+#   规范：https://www.rfc-editor.org/rfc/rfc9116
+
+Contact: https://github.com/Frank2673/surface-watch/issues
+Contact: https://github.com/Frank2673
+Expires: 2027-12-31T00:00:00.000Z
+Preferred-Languages: zh, en
+Canonical: https://frank2673-site.pages.dev/.well-known/security.txt
+Policy: https://frank2673-site.pages.dev/#security
+Acknowledgments: https://frank2673-site.pages.dev/#security
