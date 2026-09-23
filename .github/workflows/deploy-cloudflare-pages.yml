@@ -47,15 +47,18 @@ jobs:
           # 这些字符不是空白，简单的 tr -d '[:space:]' 去不掉，会让 Authorization 头
           # 变成非法格式（Cloudflare 报 code 6111 Invalid format for Authorization header）。
           # 因此只保留可打印 ASCII（\040-\0176），其余一律剔除。
-          token="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
-          account="$(printf '%s' "$RAW_ACCOUNT_ID" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
+          # 注意：这里用 POSIX 字符类 [:print:] 而非八进制区间。
+          # 八进制写法有个坑 —— tr 的 \ooo 最多解析 3 位，`\040-\0176` 会被拆成
+          # `\017`(=15) + 字面量 '6'，区间反向，tr 直接输出空值（实测踩过，令牌被清空）。
+          token="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
+          account="$(printf '%s' "$RAW_ACCOUNT_ID" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
 
           # 诊断：若清理确实去掉了东西，打印被剔除字符的十六进制码点
           # （只暴露"杂字符"的字节，不暴露令牌内容）
-          stray="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -d '\040-\0176' | LC_ALL=C od -An -tx1 | tr -s ' ' | tr -d '\n')"
+          stray="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -d '[:print:]' | LC_ALL=C od -An -tx1 | tr -s ' ' | tr -d '\n')"
           if [ -n "$(printf '%s' "$stray" | tr -d ' ')" ]; then
-            echo "::warning::密钥中含有 ${#RAW_API_TOKEN} 位长度中的非法字符，已自动剔除；其十六进制码点为:${stray}"
-            echo "   （若部署仍失败，建议用 gh secret set 重新设置，避免网页粘贴带入杂字符）"
+            echo "::warning::密钥中含有非法字符（已自动剔除），其十六进制码点为:${stray}"
+            echo "   建议用 gh secret set 重新设置该密钥，避免网页粘贴带入不可见字符"
           fi
 
           if [ -z "$token" ] || [ -z "$account" ]; then
@@ -98,8 +101,8 @@ jobs:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          token="$(printf '%s' "$CF_TOKEN" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
-          account="$(printf '%s' "$CF_ACCOUNT" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
+          token="$(printf '%s' "$CF_TOKEN" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
+          account="$(printf '%s' "$CF_ACCOUNT" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
 
           echo "▶ ① 令牌本身是否有效（/user/tokens/verify）"
           curl -s -H "Authorization: Bearer $token" \
