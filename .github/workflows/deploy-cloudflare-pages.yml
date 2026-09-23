@@ -43,9 +43,20 @@ jobs:
           RAW_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # 粘贴到密钥框时容易带上首尾空白/换行，这里统一清理
-          token="$(printf '%s' "$RAW_API_TOKEN" | tr -d '[:space:]')"
-          account="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -d '[:space:]')"
+          # 密钥清理：粘贴时最容易带入换行、全角字符或零宽字符（复制自网页尤其常见）。
+          # 这些字符不是空白，简单的 tr -d '[:space:]' 去不掉，会让 Authorization 头
+          # 变成非法格式（Cloudflare 报 code 6111 Invalid format for Authorization header）。
+          # 因此只保留可打印 ASCII（\040-\0176），其余一律剔除。
+          token="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
+          account="$(printf '%s' "$RAW_ACCOUNT_ID" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
+
+          # 诊断：若清理确实去掉了东西，打印被剔除字符的十六进制码点
+          # （只暴露"杂字符"的字节，不暴露令牌内容）
+          stray="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -d '\040-\0176' | LC_ALL=C od -An -tx1 | tr -s ' ' | tr -d '\n')"
+          if [ -n "$(printf '%s' "$stray" | tr -d ' ')" ]; then
+            echo "::warning::密钥中含有 ${#RAW_API_TOKEN} 位长度中的非法字符，已自动剔除；其十六进制码点为:${stray}"
+            echo "   （若部署仍失败，建议用 gh secret set 重新设置，避免网页粘贴带入杂字符）"
+          fi
 
           if [ -z "$token" ] || [ -z "$account" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -87,8 +98,8 @@ jobs:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          token="$(printf '%s' "$CF_TOKEN" | tr -d '[:space:]')"
-          account="$(printf '%s' "$CF_ACCOUNT" | tr -d '[:space:]')"
+          token="$(printf '%s' "$CF_TOKEN" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
+          account="$(printf '%s' "$CF_ACCOUNT" | LC_ALL=C tr -cd '\040-\0176' | tr -d '[:space:]')"
 
           echo "▶ ① 令牌本身是否有效（/user/tokens/verify）"
           curl -s -H "Authorization: Bearer $token" \
