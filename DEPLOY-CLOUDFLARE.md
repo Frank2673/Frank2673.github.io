@@ -56,6 +56,14 @@ Cloudflare 控制台 → **Workers & Pages** → 右侧栏可见 **Account ID**�
 
 创建后**只显示一次**，请立即复制。
 
+> **令牌格式说明**（2026 年 4 月起）：Cloudflare 新建令牌采用带前缀的可扫描格式 ——
+> 用户级为 `cfut_` 开头、账户级为 `cfat_`、Global Key 为 `cfk_`，后接 40 个字符与校验和，
+> 总长度约 60+ 位。**不要再按"40 位"来判断有效性**（旧格式仅对 2026 年前创建的老令牌有效）。
+> 参考：<https://developers.cloudflare.com/fundamentals/api/get-started/token-formats/>
+
+> **安全提示**：Cloudflare 已加入 GitHub Secret Scanning —— 若令牌被提交进**公开仓库**，
+> Cloudflare 会自动吊销它。所以务必放进 **GitHub Secrets**（加密存储），不要写进任何文件。
+
 ### 3. 写入 GitHub Secrets
 
 仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**：

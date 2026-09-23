@@ -53,14 +53,26 @@ jobs:
             exit 0
           fi
 
-          # 格式自检：Cloudflare API Token 为 40 位 [A-Za-z0-9_-]，账户 ID 为 32 位十六进制。
-          # 只输出长度、不输出值 —— 便于定位"粘贴带了多余字符"这类问题。
-          if ! printf '%s' "$token" | grep -Eq '^[A-Za-z0-9_-]{40}$'; then
-            echo "::error::CLOUDFLARE_API_TOKEN 格式不正确（实际长度 ${#token}，应为 40 位字母数字/下划线/连字符）"
-            echo "   常见原因：粘贴时带入了换行或多余空格。请重新设置该密钥："
-            echo "   gh secret set CLOUDFLARE_API_TOKEN --repo $GITHUB_REPOSITORY"
+          # 格式自检（只输出长度与判定，不输出值）。
+          # 注意：Cloudflare 自 2026 年起新建令牌采用带前缀的可扫描格式：
+          #   cfut_[40 字符][校验和]  = 用户级 API Token
+          #   cfat_[40 字符][校验和]  = 账户级 API Token
+          #   cfk_[40 字符][校验和]   = Global API Key
+          # 旧格式（40 位无前缀字母数字）对老令牌仍然有效。
+          # 校验原则：只拦「明显不是 Cloudflare 凭证」的情况，其余交给 API 判定 ——
+          # 避免因为格式假设过时而把有效令牌误判（本项目就踩过这个坑）。
+          if printf '%s' "$token" | grep -Eq '^cf(ut|at|k)_[A-Za-z0-9]{40,}$'; then
+            echo "::notice::已识别为 Cloudflare 带前缀令牌（${token:0:5}…，共 ${#token} 位）"
+          elif printf '%s' "$token" | grep -Eq '^[A-Za-z0-9_-]{40}$'; then
+            echo "::notice::已识别为 Cloudflare 旧版 40 位令牌"
+          elif printf '%s' "$token" | grep -Eq '^(ghp_|gho_|ghs_|github_pat_|AKIA|ASIA|sk-|xox[bp]-|AIza)'; then
+            echo "::error::这个密钥看起来是其它平台的凭证，不是 Cloudflare API Token"
+            echo "   请到 https://dash.cloudflare.com/profile/api-tokens 重新创建"
             exit 1
+          else
+            echo "::warning::令牌格式不在已知范围内（长度 ${#token}）—— 仍会继续尝试，若失败请确认复制的是 API Token 而非其它值"
           fi
+
           if ! printf '%s' "$account" | grep -Eq '^[A-Za-z0-9]{32}$'; then
             echo "::error::CLOUDFLARE_ACCOUNT_ID 格式不正确（实际长度 ${#account}，应为 32 位十六进制）"
             exit 1
