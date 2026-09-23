@@ -68,7 +68,20 @@ node scripts/validate-site.mjs
 
 ## 部署方式
 
-**自动**：推送到 `main` 分支即自动发布（GitHub Pages 分支部署）。
+本仓库**同时部署到两个平台**，各司其职：
+
+| 平台 | 地址 | 作用 |
+|---|---|---|
+| GitHub Pages | <https://frank2673.github.io/> | 主地址、稳定、免费 |
+| Cloudflare Pages | `https://frank2673-site.pages.dev/` | **执行安全响应头**（GitHub Pages 不支持） |
+
+> **为什么是两个平台？** GitHub Pages 不支持自定义响应头，而本仓库的 `_headers`
+> 声明了 7 项安全头（CSP / HSTS / X-Frame-Options 等）。Cloudflare Pages 免费套餐
+> 原生支持 `_headers`，且不需要自有域名。详见 [DEPLOY-CLOUDFLARE.md](DEPLOY-CLOUDFLARE.md)。
+
+### 自动部署
+
+推送到 `main` 分支即自动发布：
 
 ```bash
 git add .
@@ -76,7 +89,19 @@ git commit -m "feat: 更新主页内容"   # 提交信息需符合 Conventional 
 git push
 ```
 
-**质量门禁**：每次 push / PR 都会触发 `.github/workflows/ci.yml`，检查不通过就亮红灯。
+- `.github/workflows/ci.yml` —— 质量门禁（自检 + 体积核查 + 分享图可复现性）
+- `.github/workflows/deploy-cloudflare-pages.yml` —— 构建 `public/` 并部署到 Cloudflare Pages
+  （未配置 Cloudflare 密钥时会优雅跳过，不影响 CI 结果）
+
+### 构建与部署后校验
+
+```bash
+node scripts/build-public.mjs                          # 白名单组装发布目录 public/
+node scripts/check-deployed-headers.mjs --url <站点地址>  # 校验线上响应头是否与 _headers 一致
+```
+
+`build-public.mjs` 只发布站点真正需要的文件（`index.html`、`assets/`、`_headers` 等），
+把 `scripts/`、`README.md` 等开发资产挡在生产之外。
 
 ## 技术要点
 

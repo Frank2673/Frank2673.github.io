@@ -40,8 +40,19 @@ const REQUIRED = [
   'robots.txt',
   'sitemap.xml',
   '.nojekyll',
+  '_headers',
   'README.md',
   'LICENSE',
+];
+
+/** `_headers` 中必须存在的安全响应头（GitHub Pages 不执行它，Cloudflare Pages 执行） */
+const HEADER_BASELINE = [
+  'Strict-Transport-Security',
+  'Content-Security-Policy',
+  'X-Content-Type-Options',
+  'Referrer-Policy',
+  'X-Frame-Options',
+  'Permissions-Policy',
 ];
 
 for (const file of REQUIRED) {
@@ -52,6 +63,35 @@ for (const file of REQUIRED) {
     bad(`文件为空：${file}`);
   } else {
     ok(`必需文件存在：${file}`);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   1b. 响应头策略基线
+   `_headers` 由 header-forge 从 headers.policy.json 生成（权威策略在那个仓库）。
+   这里只做基线校验，防止文件被误删或被人手工改残。
+   -------------------------------------------------------------------------- */
+if (existsSync(join(ROOT, '_headers'))) {
+  const headersText = readFileSync(join(ROOT, '_headers'), 'utf8');
+  const missingHeaders = HEADER_BASELINE.filter(
+    (name) => !new RegExp(`^\\s*${name}\\s*:`, 'im').test(headersText)
+  );
+  if (missingHeaders.length) {
+    bad(`_headers 缺少基线安全响应头：${missingHeaders.join('、')}`);
+  } else {
+    ok(`_headers 含全部 ${HEADER_BASELINE.length} 项基线安全响应头`);
+  }
+
+  /* CSP 是这套头里最容易配错的一个，单独盯一眼 */
+  const cspLine = (headersText.match(/^\s*Content-Security-Policy\s*:\s*(.+)$/im) || [])[1] || '';
+  if (cspLine) {
+    if (/script-src[^;]*'unsafe-inline'/.test(cspLine)) {
+      bad("_headers 的 CSP 在 script-src 中放行了 'unsafe-inline'（应改用 hash）");
+    } else if (!/frame-ancestors/.test(cspLine) || !/default-src/.test(cspLine)) {
+      bad('_headers 的 CSP 缺少 default-src 或 frame-ancestors');
+    } else {
+      ok('_headers 的 CSP 结构完整且未放行 unsafe-inline 脚本');
+    }
   }
 }
 
