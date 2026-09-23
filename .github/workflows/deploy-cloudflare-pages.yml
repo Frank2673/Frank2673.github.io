@@ -81,12 +81,45 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
           echo "::notice::凭据格式校验通过，开始部署"
 
+      - name: 令牌有效性诊断（失败时便于定位原因）
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          token="$(printf '%s' "$CF_TOKEN" | tr -d '[:space:]')"
+          account="$(printf '%s' "$CF_ACCOUNT" | tr -d '[:space:]')"
+
+          echo "▶ ① 令牌本身是否有效（/user/tokens/verify）"
+          curl -s -H "Authorization: Bearer $token" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify | head -c 600
+          echo ""
+
+          echo "▶ ② 令牌能否访问目标账号（/accounts/<id>）"
+          code=$(curl -s -o /tmp/acct.json -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            "https://api.cloudflare.com/client/v4/accounts/$account")
+          echo "HTTP $code"
+          head -c 600 /tmp/acct.json
+          echo ""
+
+          echo "▶ ③ 令牌能否列出 Pages 项目（真正要用的权限）"
+          code2=$(curl -s -o /tmp/pages.json -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            "https://api.cloudflare.com/client/v4/accounts/$account/pages/projects")
+          echo "HTTP $code2"
+          head -c 600 /tmp/pages.json
+          echo ""
+          echo "（以上输出只含状态与资源名，不含令牌本身）"
+
       - name: 部署到 Cloudflare Pages
         if: steps.creds.outputs.ready == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 显式指定 4.x：action 默认会装 3.x，与本地开发版本不一致
+          wranglerVersion: '4'
           command: pages deploy public --project-name=frank2673-site --branch=main
 
       - name: 部署后校验线上响应头
