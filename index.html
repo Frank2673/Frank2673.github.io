@@ -273,6 +273,7 @@
           <p>
             安全响应头配置即代码：一次声明策略，生成 Cloudflare / Netlify / Vercel / Nginx / Caddy 五种配置。
             内置<strong>本地模拟器</strong>解析生成产物并自证有效；CSP 顾问为内联脚本计算 hash，避免退化成 unsafe-inline。
+            支持<strong>反向导入</strong>现有配置生成策略，并以往返一致性守卫保证生成与解析严格对称。
           </p>
           <ul class="tags" aria-label="技术要点">
             <li>安全响应头</li>
@@ -285,7 +286,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </a>
             <span class="badge-live">
-              <span class="dot" aria-hidden="true"></span>74 项测试通过
+              <span class="dot" aria-hidden="true"></span>111 项测试通过
             </span>
           </div>
         </article>
