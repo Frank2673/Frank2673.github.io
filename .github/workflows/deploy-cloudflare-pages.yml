@@ -85,7 +85,13 @@ jobs:
           fi
 
           if [ "$other" -gt 0 ]; then
-            echo "::warning::令牌含 $other 个非 [A-Za-z0-9_-] 字符，通常是粘贴时带入了额外文本"
+            # 打印标点集合与首段：用于识别"粘贴成了网址/命令"这类误操作。
+            # （此时该值明显不是令牌，展示其片段不构成密钥泄露）
+            punct=$(printf '%s' "$token" | LC_ALL=C tr -d 'A-Za-z0-9' | fold -w1 | sort -u | tr -d '\n')
+            echo "::warning::令牌含 $other 个非字母数字字符，字符集合为：[${punct}]"
+            echo "::warning::该值开头片段：$(printf '%s' "$token" | cut -c1-16)…"
+            echo "   → 这看起来不是 Cloudflare 令牌值。请在控制台点「Copy」按钮复制令牌，"
+            echo "     不要用鼠标选中拖拽（容易连带页面上的其它文字）。"
           fi
 
           # 格式自检（只输出长度与判定，不输出值）。
