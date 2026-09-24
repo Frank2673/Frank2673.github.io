@@ -40,6 +40,10 @@ Cloudflare Pages 免费套餐原生支持 `_headers`，**不需要自有域名**
 
 ## 路径 B：API Token + GitHub Secrets（推送即部署）
 
+> ✅ **本仓库已按此路径配置完成并验证通过**（2026-09-24）。链路为：
+> push → 站点自检 38 项 → 构建 `public/` → 凭据校验与诊断 → 部署到 Cloudflare Pages → 自动校验线上响应头（7/7）。
+> 下面的「故障排查」一节记录了配置过程中实际踩到的 5 个坑，遇到问题先看它。
+
 工作流已就绪：`.github/workflows/deploy-cloudflare-pages.yml`。未配置密钥时会**优雅跳过**，不会让 CI 变红。
 
 ### 1. 拿到 Account ID
@@ -158,3 +162,90 @@ node src/index.mjs verify --policy headers.policy.json --url https://<你的站�
 
 需要一个自有域名。那时可以走 header-forge 里 `MIGRATION.md` 的**方案 C**：
 自有域名 + Cloudflare 代理，这也能顺带解决 DMARC（它需要域名的 DNS 控制权）。
+
+---
+
+## 故障排查：配置过程中真实踩过的 5 个坑
+
+以下每一条都是本仓库实际发生过的故障，附**症状 → 根因 → 修复**。工作流里已内置诊断，遇到问题先看 CI 日志里的 `::notice::` / `::warning::` 行。
+
+### 坑 1：把密钥直接插值进 `run:` 脚本 → 引号被截断
+
+**症状**：CI 报 `/home/runner/work/_temp/xxx.sh: line 4: unexpected EOF while looking for matching '"'`
+
+**根因**：写成 `if [ -n "${{ secrets.X }}" ]` —— 当密钥值含换行或特殊字符时，插值后把 shell 引号截断。
+
+**修复**：密钥一律通过 `env:` 注入，脚本里引用变量：
+
+```yaml
+env:
+  RAW_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+run: |
+  token="$RAW_API_TOKEN"
+```
+
+### 坑 2：`tr` 的八进制转义陷阱 → 令牌被清空
+
+**症状**：工作流"成功"但**跳过了部署**，日志显示「未配置 Cloudflare 凭据」。
+
+**根因**：写了 `tr -cd '\040-\0176'`。`tr` 的 `\ooo` **最多解析 3 位八进制**，于是被拆成 `\017`(=15) + 字面量 `6`，区间变成 32–15（反向），`tr` 直接报
+`range-endpoints of ' -\017' are in reverse collating sequence order` 并输出空值。
+
+**修复**：用 POSIX 字符类，可读性也更好：
+
+```bash
+token="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
+```
+
+### 坑 3：令牌格式假设过时 → 有效令牌被误判
+
+**症状**：格式校验报「实际长度 62，应为 40 位」，但令牌其实是对的。
+
+**根因**：按旧规范（40 位无前缀）判断。Cloudflare 自 2026 年起新建令牌改为**带前缀的可扫描格式**：
+`cfut_`（用户级）/ `cfat_`（账户级）/ `cfk_`（Global Key）+ 40 字符 + 校验和，总长约 53–62 位。
+参考：<https://developers.cloudflare.com/fundamentals/api/get-started/token-formats/>
+
+**修复**：只拦「明显不是 Cloudflare 凭证」的情况（`ghp_`/`github_pat_`/`AKIA`/`sk-`/`AIza` 等其它平台前缀），
+其余交给 Cloudflare API 判定；未知格式只告警不阻断。
+
+### 坑 4：粘贴成了命令文本 → 6111 Invalid format for Authorization header
+
+**症状**：Cloudflare 对所有请求返回
+`{"code":6003,"message":"Invalid request headers","error_chain":[{"code":6111,"message":"Invalid format for Authorization header"}]}`
+
+**根因**：密钥框里存的**不是令牌值**，而是一段命令文本（实测抓到开头是 `curl"https://api…`）。
+用鼠标拖拽选中复制、或从聊天记录里误复制，都会造成这种结果。
+
+**定位方法**（工作流已内置，不泄露密钥内容）：
+
+```
+令牌构成：总长 62｜大写 0｜小写 48｜数字 1｜连字符 0｜下划线 0｜其它字符 13
+前缀为「cu」，不是 cf 开头
+字符集合为：["./:\]
+```
+
+看到「其它字符 > 0」且「不以 cf 开头」，基本就是复制错了内容。
+
+**修复**：在 Cloudflare 令牌页面点 **Copy 按钮**复制（不要拖拽选中）。
+或使用 `scripts/set-cloudflare-token.ps1` —— 它会在写入前校验格式并调用 Cloudflare 实测有效性。
+
+### 坑 5：令牌有效但缺权限 → 9109 / 10000
+
+**症状**：诊断①令牌有效，但②③返回
+
+```
+② HTTP 403 {"code":9109,"message":"Unauthorized to access requested resource"}
+③ HTTP 403 {"code":10000,"message":"Authentication error"}
+```
+
+**根因**：令牌创建时**权限**或**账户资源**没配全。后者尤其容易漏 —— 权限给了但没选账号，等于令牌不覆盖任何账号。
+
+**修复**：编辑令牌（或新建自定义令牌），确保：
+
+| 项目 | 应为 |
+|---|---|
+| Permissions | `Account` → `Cloudflare Pages` → **Edit** |
+| Account Resources | `Include` → 你的账号 |
+
+> 注意：诊断②（读取账号详情）需要 `Account Settings:Read`。**最小权限令牌返回 403 是正常的**，
+> 不影响部署 —— 只有诊断③（列出 Pages 项目）才是部署真正依赖的权限。
