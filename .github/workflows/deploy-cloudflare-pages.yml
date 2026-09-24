@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 站点自检（28 项：结构 / 链接 / SEO / 无障碍 / 零依赖）
+      - name: 站点自检（38 项：结构 / 链接 / SEO / 无障碍 / 零依赖 / CSP 一致性 / security.txt）
         run: node scripts/validate-site.mjs
 
       - name: 组装发布目录（白名单，仅公开必要文件）
@@ -132,25 +132,39 @@ jobs:
           account="$(printf '%s' "$CF_ACCOUNT" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
 
           echo "▶ ① 令牌本身是否有效（/user/tokens/verify）"
-          curl -s -H "Authorization: Bearer $token" \
-            https://api.cloudflare.com/client/v4/user/tokens/verify | head -c 600
+          validate=$(curl -s -H "Authorization: Bearer $token" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify)
+          echo "$validate" | head -c 600
           echo ""
+          if printf '%s' "$validate" | grep -q '"success":true'; then
+            echo "✅ 令牌有效"
+          else
+            echo "::error::令牌无效 —— 请重新创建并更新 CLOUDFLARE_API_TOKEN 密钥"
+          fi
 
-          echo "▶ ② 令牌能否访问目标账号（/accounts/<id>）"
+          # ② 属于"可选权限"：该接口需要 Account Settings:Read。
+          #    最小权限令牌（只给 Pages:Edit）返回 403 是完全正常的，不影响部署。
+          echo "▶ ② 能否读取账号详情（可选权限，403 属正常）"
           code=$(curl -s -o /tmp/acct.json -w '%{http_code}' \
             -H "Authorization: Bearer $token" \
             "https://api.cloudflare.com/client/v4/accounts/$account")
-          echo "HTTP $code"
-          head -c 600 /tmp/acct.json
+          echo "HTTP $code（最小权限令牌预期为 403，部署不依赖此权限）"
+          head -c 200 /tmp/acct.json
           echo ""
 
-          echo "▶ ③ 令牌能否列出 Pages 项目（真正要用的权限）"
+          # ③ 才是部署真正依赖的权限 —— 这一项决定成败
+          echo "▶ ③ 能否列出 Pages 项目（部署必需权限）"
           code2=$(curl -s -o /tmp/pages.json -w '%{http_code}' \
             -H "Authorization: Bearer $token" \
             "https://api.cloudflare.com/client/v4/accounts/$account/pages/projects")
           echo "HTTP $code2"
-          head -c 600 /tmp/pages.json
+          head -c 400 /tmp/pages.json
           echo ""
+          if [ "$code2" = "200" ]; then
+            echo "✅ Pages 权限校验通过（部署所需权限齐备）"
+          else
+            echo "::warning::无法列出 Pages 项目（HTTP $code2）—— 令牌可能缺少 Account → Cloudflare Pages → Edit 权限，或 Account Resources 未包含该账号"
+          fi
           echo "（以上输出只含状态与资源名，不含令牌本身）"
 
       - name: 部署到 Cloudflare Pages
