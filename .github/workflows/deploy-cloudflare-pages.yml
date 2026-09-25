@@ -53,6 +53,15 @@ jobs:
           token="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
           account="$(printf '%s' "$RAW_ACCOUNT_ID" | LC_ALL=C tr -cd '[:print:]' | tr -d '[:space:]')"
 
+          # 掩码登记（纵深防御）：清理后的值已是单行，可以安全登记 —— 登记后即使后续步骤
+          # （curl / wrangler 的报错，或将来有人手滑 echo）把该值打进日志，runner 也会替换成 ***。
+          # 只登记清理后的副本：原始 RAW 可能含换行，::add-mask:: 只吃单行，登记无效还会破坏
+          # 命令语法。过短的值不登记 —— 否则会把日志里正常字词一起涂黑，反而看不清。
+          # 注意：这只是兜底。本步骤的规矩是「只输出派生指标」，不靠掩码保密。
+          if [ "${#token}" -ge 8 ]; then
+            echo "::add-mask::$token"
+          fi
+
           # 诊断：若清理确实去掉了东西，打印被剔除字符的十六进制码点
           # （只暴露"杂字符"的字节，不暴露令牌内容）
           stray="$(printf '%s' "$RAW_API_TOKEN" | LC_ALL=C tr -d '[:print:]' | LC_ALL=C od -An -tx1 | tr -s ' ' | tr -d '\n')"
@@ -77,19 +86,34 @@ jobs:
           other=$(printf '%s' "$token" | LC_ALL=C tr -d 'A-Za-z0-9_-' | wc -c)
           echo "::notice::令牌构成：总长 ${#token}｜大写 $upper｜小写 $lower｜数字 $digit｜连字符 $dash｜下划线 $under｜其它字符 $other"
 
-          first2=$(printf '%s' "$token" | cut -c1-2)
-          if [ "$first2" = "cf" ]; then
+          # 前两位只报「字符类别」，不报字符本身 —— 这是公开仓库的 Actions 日志，任何人可读，
+          # 凭据串的任何片段都不该出现（哪怕只有 2 个字符）。
+          head2=$(printf '%s' "$token" | cut -c1-2)
+          if [ "$head2" = "cf" ]; then
             echo "::notice::前缀以 cf 开头（符合 Cloudflare 令牌特征）"
           else
-            echo "::warning::前缀为「${first2}」，不是 cf 开头 —— 很可能粘贴的不是令牌值本身（比如复制成了令牌名称或 ID）"
+            h_low=$(printf '%s' "$head2" | LC_ALL=C tr -cd 'a-z' | wc -c)
+            h_up=$(printf '%s' "$head2" | LC_ALL=C tr -cd 'A-Z' | wc -c)
+            h_num=$(printf '%s' "$head2" | LC_ALL=C tr -cd '0-9' | wc -c)
+            h_oth=$(printf '%s' "$head2" | LC_ALL=C tr -d 'A-Za-z0-9' | wc -c)
+            echo "::warning::前缀不是 cf 开头（前 2 位的字符类别：小写 ${h_low}｜大写 ${h_up}｜数字 ${h_num}｜其它 ${h_oth}）—— 很可能粘贴的不是令牌值本身（比如复制成了令牌名称或 ID）"
           fi
 
           if [ "$other" -gt 0 ]; then
-            # 打印标点集合与首段：用于识别"粘贴成了网址/命令"这类误操作。
-            # （此时该值明显不是令牌，展示其片段不构成密钥泄露）
+            # ⚠️ 只输出派生指标，绝不输出凭据串的任何前缀。
+            # 公开仓库的 Actions 日志人人可读：这里原先用 cut -c1-16 打印了「清理后凭据的前 16 位」，
+            # 而 GitHub 的自动掩码只认 Secret 原值、对 tr 清理后的副本不生效；「此时显然不是令牌」
+            # 只是启发式、不是证明 —— 一次误判就是一次公开泄露。
+            # 下面这些指标足以区分「粘贴成了网址 / 命令」与「令牌本身格式不对」，且全部由原值派生、
+            # 反推不了明文：字符类别分布（仅标点集合）+ 是否形如 URL + 是否像命令行 + 长度 + sha256 前 8 位。
             punct=$(printf '%s' "$token" | LC_ALL=C tr -d 'A-Za-z0-9' | fold -w1 | sort -u | tr -d '\n')
-            echo "::warning::令牌含 $other 个非字母数字字符，字符集合为：[${punct}]"
-            echo "::warning::该值开头片段：$(printf '%s' "$token" | cut -c1-16)…"
+            url_like="否"
+            if printf '%s' "$token" | grep -Eq '^[A-Za-z][A-Za-z0-9+.-]*://'; then url_like="是"; fi
+            cmd_like="否"
+            if printf '%s' "$token" | grep -Eq '(curl|wrangler|Bearer|Authorization|--data)'; then cmd_like="是"; fi
+            fp=$(printf '%s' "$token" | sha256sum | cut -c1-8)
+            echo "::warning::令牌含 $other 个非字母数字字符，字符类别集合（仅标点，不含字母数字）：[${punct}]"
+            echo "::warning::派生指标：总长 ${#token}｜形如 URL=${url_like}｜形如命令行=${cmd_like}｜sha256 前 8 位 ${fp}"
             echo "   → 这看起来不是 Cloudflare 令牌值。请在控制台点「Copy」按钮复制令牌，"
             echo "     不要用鼠标选中拖拽（容易连带页面上的其它文字）。"
           fi
@@ -103,7 +127,14 @@ jobs:
           # 校验原则：只拦「明显不是 Cloudflare 凭证」的情况，其余交给 API 判定 ——
           # 避免因为格式假设过时而把有效令牌误判（本项目就踩过这个坑）。
           if printf '%s' "$token" | grep -Eq '^cf(ut|at|k)_[A-Za-z0-9]{40,}$'; then
-            echo "::notice::已识别为 Cloudflare 带前缀令牌（${token:0:5}…，共 ${#token} 位）"
+            # 同样不报字符片段：前缀本身也是凭据串的一部分，这里只报「类型标签 + 长度」。
+            case "$token" in
+              cfut_*) token_kind="用户级 API Token" ;;
+              cfat_*) token_kind="账户级 API Token" ;;
+              cfk_*) token_kind="Global API Key" ;;
+              *) token_kind="带前缀令牌" ;;
+            esac
+            echo "::notice::已识别为 Cloudflare 带前缀令牌（类型：${token_kind}，共 ${#token} 位）"
           elif printf '%s' "$token" | grep -Eq '^[A-Za-z0-9_-]{40}$'; then
             echo "::notice::已识别为 Cloudflare 旧版 40 位令牌"
           elif printf '%s' "$token" | grep -Eq '^(ghp_|gho_|ghs_|github_pat_|AKIA|ASIA|sk-|xox[bp]-|AIza)'; then
